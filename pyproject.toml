@@ -7,7 +7,9 @@ authors = [
     { name = "Prakhar Singh", email = "prakhars156@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "ipykernel>=7.3.0",
+]
 
 [project.scripts]
 dsa = "dsa:main"
