@@ -1,0 +1,25 @@
+- Security group: controls which traffic may enter EC2.
+- Nginx: receives public web traffic and forwards it internally.
+- Docker port mapping: connects the EC2 host port to the container.
+- proxy_pass: identifies the internal application destination.
+- HTTPS: will be terminated/handled by Nginx.
+- 8000, 8501 and 5432 remain private.
+You should vaguely recognize—but do not need to memorize:
+- Host, X-Real-IP, X-Forwarded-*: preserve information about the original request.
+- Upgrade and Connection: allow Streamlit’s WebSocket connection.
+- proxy_read_timeout: prevents long-lived connections from closing too quickly.
+- proxy_buffering off: sends interactive data without unnecessary waiting.
+- IPv4 versus IPv6 listen lines.
+
+
+What you should remember
+You do not need to memorize the TLS handshake. Remember these seven points:
+1. HTTPS is HTTP inside a TLS-protected connection.
+2. TLS provides encryption, integrity and server authentication.
+3. A certificate binds a hostname to a public key.
+4. A trusted CA signs the certificate after validating domain control.
+5. The certificate is public; the corresponding private key is secret.
+6. Nginx handles HTTPS and forwards requests privately to Streamlit.
+7. Certbot automates certificate issuance, Nginx configuration and renewal.
+The most accurate one-sentence explanation is:
+A TLS certificate lets the browser verify that the public key used to establish the encrypted connection genuinely belongs to the requested hostname.
