@@ -23,3 +23,91 @@ You do not need to memorize the TLS handshake. Remember these seven points:
 7. Certbot automates certificate issuance, Nginx configuration and renewal.
 The most accurate one-sentence explanation is:
 A TLS certificate lets the browser verify that the public key used to establish the encrypted connection genuinely belongs to the requested hostname.
+
+
+
+
+
+When you start EC2, Ubuntu boots, starts its enabled services, and Docker starts your existing containers. Our saved configuration makes this automatic—you don’t need to SSH in first.
+Some steps happen in parallel, so this is the logical flow rather than a strict second-by-second order.
+1. AWS starts the instance and attaches its existing disk
+Your EBS disk still contains:
+- Your repository and .env in /opt/public-pulse.
+- Installed Docker, Nginx, and Certbot.
+- Downloaded images and existing container configuration.
+- PostgreSQL data in the Docker volume.
+- Nginx configuration and HTTPS certificate files.
+A normal stop/start usually gives your instance a new public IPv4 address. Its private address remains the same. Amazon Elastic Compute Cloud
+AWS handles this. We don’t reinstall anything.
+2. Ubuntu boots and starts enabled services
+Ubuntu’s service manager, systemd, starts services configured to run at boot.
+You already checked:
+systemctl is-enabled docker nginx
+
+Both returned enabled.
+Therefore:
+- Docker’s daemon starts.
+- Nginx starts.
+- The cron scheduler starts.
+Docker’s Ubuntu installation enables startup at boot by default. We verified that setting; we didn’t write a custom Docker startup program. Docker Docs
+3. Our DuckDNS updater updates the hostname’s IP
+This is a DNS update, rather than a DNS renewal.
+We configured an updater script and cron entries to run it:
+- At reboot.
+- Every five minutes afterward.
+The script contacts DuckDNS with your hostname and token. Because we left the IP parameter empty, DuckDNS detects the request’s public IPv4 address and updates the record. spec
+So your stable hostname:
+public-pulse-demo.duckdns.org
+
+starts pointing to the instance’s current public IP.
+An early attempt can fail if networking isn’t ready; the recurring schedule gives it another opportunity. DNS caches can also take some time to reflect the change.
+4. Docker starts the existing containers
+We added this to each release service:
+restart: unless-stopped
+
+When we applied the Compose configuration, Docker stored that policy on the containers.
+At boot, Docker reads its stored configuration and starts the eligible containers:
+Container	What starts inside it
+db	PostgreSQL, using its existing data volume
+api	Uvicorn serving your FastAPI application
+frontend	Streamlit serving your interface
+
+
+The containers reuse their stored environment variables, mounts, commands, and port mappings.
+Docker does not run docker compose up or reread your Compose file at every boot. It restarts the containers we previously created.
+With unless-stopped, a container you deliberately stopped using docker stop or docker compose stop remains stopped. Containers removed using compose down cannot automatically return. Docker Docs
+Also, boot restoration does not guarantee Compose’s database-health startup ordering. The application must tolerate the database taking a little longer to become ready.
+5. Nginx loads its saved configuration and certificate
+Nginx reads its configuration from disk and listens on ports 80 and 443.
+It already knows:
+Request	Destination
+HTTP website request	Redirect to HTTPS
+HTTPS /gmail/callback	127.0.0.1:8000 → API container
+Other HTTPS website paths	127.0.0.1:8501 → frontend container
+
+
+Nginx can start before the containers finish starting. During that brief window, it may return 502 Bad Gateway because its destination isn’t ready.
+6. Your website becomes reachable
+Once DNS points to the current IP and the services are ready:
+1. Your browser resolves the hostname.
+2. It connects to EC2 on port 443, allowed by our security group.
+3. Nginx handles TLS using the saved certificate.
+4. Nginx selects the destination port.
+5. Docker forwards the connection to the corresponding container.
+6. Streamlit or FastAPI handles the request.
+The security group remains associated with the instance; we don’t recreate its rules at startup.
+7. Certificate renewal happens separately on a schedule
+We don’t obtain a new certificate every time EC2 starts. The certificate is for the hostname, so changing EC2’s public IP doesn’t require replacing it.
+Certbot’s installation provides scheduled renewal checks. When renewal is due and succeeds, its Nginx integration reloads Nginx to use the renewed certificate. This requires the instance and domain validation to be reachable. We haven’t verified your renewal timer in the output shown so far. Certbot
+Here’s who configured what:
+Feature	Our contribution	Automatic behavior afterward
+Disk persistence and instance startup	Selected EC2/EBS settings	AWS preserves the disk and boots the instance
+Docker/Nginx boot startup	Installed software and verified enabled services	Ubuntu starts them
+Stable hostname	Wrote DuckDNS updater and scheduled it	Cron runs it; DuckDNS updates DNS
+Container startup	Added and applied restart: unless-stopped	Docker restarts eligible existing containers
+Application startup	Defined container commands	Containers launch PostgreSQL, Uvicorn, and Streamlit
+Routing and HTTPS	Wrote Nginx configuration and ran Certbot	Nginx loads saved settings at startup
+Certificate renewal	Installed Certbot and obtained the first certificate	Its scheduler checks for renewal
+
+
+Startup does not fetch new code or images, rebuild anything, or run migrations. Those remain deployment actions we perform when updating the project.
